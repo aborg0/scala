@@ -14,7 +14,7 @@ import java.nio.charset.{CharsetDecoder, CoderResult}
 import scala.tools.nsc.reporters._
 
 /** This class implements methods to read and decode source files. */
-class SourceReader(decoder: CharsetDecoder, reporter: Reporter) {
+class SourceReader(decoder: CharsetDecoder, reporter: Reporter, defaultEncoding: Boolean = true) {
 
   import SourceReader.{decode, flush}
 
@@ -57,10 +57,21 @@ class SourceReader(decoder: CharsetDecoder, reporter: Reporter) {
       case e: Exception => reportEncodingError("" + file) ; Array()
     }
   }
+  protected def checkOrSet(goodOptions: Set[String], charset: String, origDecoder: CharsetDecoder): CharsetDecoder = {
+    if (defaultEncoding) {
+      if (origDecoder.charset.name == charset)
+        origDecoder
+      else
+        java.nio.charset.Charset.forName(charset).newDecoder
+    } else {
+      assert(goodOptions.contains(origDecoder.charset.name))
+      origDecoder
+    }
+  }
 
   /** Reads the specified byte channel. */
   protected def read(input: ReadableByteChannel): Array[Char] = {
-    val decoder: CharsetDecoder = this.decoder.reset()
+    var decoder: CharsetDecoder = this.decoder.reset()
     val bytes: ByteBuffer       = this.bytes; bytes.clear()
     var chars: CharBuffer       = this.chars; chars.clear()
     var endOfInput              = false
@@ -75,11 +86,11 @@ class SourceReader(decoder: CharsetDecoder, reporter: Reporter) {
         if (roBytes.limit > 4) {
 	      val firstBytes = (roBytes.get, roBytes.get, roBytes.get, roBytes.get)
 	      firstBytes match {
-	        case (-17, -69, -65, _)/*UTF-8 BOM*/ => {bytes position 3; assert(decoder.charset.name == "UTF-8")}
-	        case (-1, -2, 0, 0)/*UTF-32 LE BOM*/ => {bytes position 4; assert(Set("UTF-32", "UTF-32LE").contains(decoder.charset.name))}
-	        case (0, 0, -2, -1)/*UTF-32 BE BOM*/ => {bytes position 4; assert(Set("UTF-32", "UTF-32BE").contains(decoder.charset.name))}
-	        case (-2, -1, _, _)/*UTF-16 BE BOM*/ => {bytes position 2; assert(Set("UTF-16", "UTF-16BE").contains(decoder.charset.name))}
-	        case (-1, -2, _, _)/*UTF-16 LE BOM*/ => {bytes position 2; assert(Set("UTF-16", "UTF-16LE").contains(decoder.charset.name))}
+	        case (-17, -69, -65, _)/*UTF-8 BOM*/ => {bytes position 3; decoder = checkOrSet(Set("UTF-8"), "UTF-8", decoder)}
+	        case (-1, -2, 0, 0)/*UTF-32 LE BOM*/ => {bytes position 4; decoder = checkOrSet(Set("UTF-32", "UTF-32LE"), "UTF-32LE", decoder)}
+	        case (0, 0, -2, -1)/*UTF-32 BE BOM*/ => {bytes position 4; decoder = checkOrSet(Set("UTF-32", "UTF-32BE"), "UTF-32BE", decoder)}
+	        case (-2, -1, _, _)/*UTF-16 BE BOM*/ => {bytes position 2; decoder = checkOrSet(Set("UTF-16", "UTF-16BE"), "UTF-16BE", decoder)}
+	        case (-1, -2, _, _)/*UTF-16 LE BOM*/ => {bytes position 2; decoder = checkOrSet(Set("UTF-16", "UTF-16LE"), "UTF-16LE", decoder)}
 	        case _ =>
 	      }
         }
